@@ -1,0 +1,400 @@
+### Variables
+@baseUrl = http://localhost:5090
+
+# ==============================================================================
+# SECTION 1: DEFAULT API CONTRACT ENDPOINTS (/api/...)
+# Adheres strictly to ASSIGNMENT.md table
+# ==============================================================================
+
+### 1.1 Create room (expected: 201 Created with Location header)
+# @name createRoomDefault
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Study room 1",
+  "capacity": 10
+}
+
+###
+@defaultRoomId = {{createRoomDefault.response.body.$.id}}
+
+### 1.2 Get room (expected: 200 OK)
+GET {{baseUrl}}/api/rooms/{{defaultRoomId}}
+
+### 1.3 Get a missing room (expected: 404 Not Found)
+GET {{baseUrl}}/api/rooms/00000000-0000-0000-0000-000000000001
+
+### 1.4 Create booking (expected: 201 Created with Location header)
+# @name createBookingDefault
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "ana",
+  "startUtc": "2030-01-10T10:00:00Z",
+  "endUtc": "2030-01-10T12:00:00Z",
+  "attendees": 4
+}
+
+###
+@defaultBookingId = {{createBookingDefault.response.body.$.id}}
+
+### 1.5 Get booking (expected: 200 OK)
+GET {{baseUrl}}/api/bookings/{{defaultBookingId}}
+
+### 1.6 Overlapping booking - Rule R7 (expected: 409 Conflict)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "bogdan",
+  "startUtc": "2030-01-10T11:00:00Z",
+  "endUtc": "2030-01-10T13:00:00Z",
+  "attendees": 4
+}
+
+### 1.7 Touching booking - Rule R7: touching intervals do NOT overlap (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "clara",
+  "startUtc": "2030-01-10T12:00:00Z",
+  "endUtc": "2030-01-10T14:00:00Z",
+  "attendees": 4
+}
+
+### 1.8 Cancel booking - Rule R8 (expected: 204 No Content)
+POST {{baseUrl}}/api/bookings/{{defaultBookingId}}/cancel
+
+### 1.9 Cancel already cancelled booking - Rule R8 (expected: 409 Conflict)
+POST {{baseUrl}}/api/bookings/{{defaultBookingId}}/cancel
+
+### 1.10 Cancel missing booking - Rule R8 (expected: 404 Not Found)
+POST {{baseUrl}}/api/bookings/00000000-0000-0000-0000-000000000001/cancel
+
+
+# ==============================================================================
+# SECTION 2: BUSINESS RULES VALIDATION (R1 - R6)
+# ==============================================================================
+
+### 2.1 R1: Room name is empty (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "",
+  "capacity": 10
+}
+
+### 2.2 R1: Capacity is non-positive (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Invalid Room",
+  "capacity": 0
+}
+
+### 2.3 Room does not exist -> 404 returned before any validation (expected: 404 Not Found)
+POST {{baseUrl}}/api/rooms/00000000-0000-0000-0000-000000000001/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "",
+  "startUtc": "2020-01-01T00:00:00Z",
+  "endUtc": "2020-01-01T00:00:00Z",
+  "attendees": -1
+}
+
+### 2.4 R2: bookedBy is missing/empty (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "   ",
+  "startUtc": "2030-02-10T10:00:00Z",
+  "endUtc": "2030-02-10T12:00:00Z",
+  "attendees": 2
+}
+
+### 2.5 R3: endUtc is before/equal to startUtc (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2030-02-10T12:00:00Z",
+  "endUtc": "2030-02-10T10:00:00Z",
+  "attendees": 2
+}
+
+### 2.6 R4: attendees <= 0 (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2030-02-10T10:00:00Z",
+  "endUtc": "2030-02-10T12:00:00Z",
+  "attendees": 0
+}
+
+### 2.7 R4: attendees exceeds room capacity (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2030-02-10T10:00:00Z",
+  "endUtc": "2030-02-10T12:00:00Z",
+  "attendees": 999
+}
+
+### 2.8 R5: booking starts in the past via TimeProvider (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2020-01-01T10:00:00Z",
+  "endUtc": "2020-01-01T12:00:00Z",
+  "attendees": 2
+}
+
+### 2.9 R6: duration exceeds 4 hours for capacity <= 10 (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2030-02-10T10:00:00Z",
+  "endUtc": "2030-02-10T14:01:00Z",
+  "attendees": 2
+}
+
+### 2.10 R6: exactly 4 hours is allowed for capacity <= 10 (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{defaultRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "dan",
+  "startUtc": "2030-02-10T10:00:00Z",
+  "endUtc": "2030-02-10T14:00:00Z",
+  "attendees": 2
+}
+
+
+# ==============================================================================
+# SECTION 3: VERSION 1 ENDPOINTS (/api/v1/...)
+# Explicit versioning with /v1 prefix
+# ==============================================================================
+
+### 3.1 v1 - Create room (expected: 201 Created)
+# @name createRoomV1
+POST {{baseUrl}}/api/v1/rooms
+Content-Type: application/json
+
+{
+  "name": "Quiet Lab v1",
+  "capacity": 6
+}
+
+###
+@roomV1Id = {{createRoomV1.response.body.$.id}}
+
+### 3.2 v1 - Get room (expected: 200 OK)
+GET {{baseUrl}}/api/v1/rooms/{{roomV1Id}}
+
+### 3.3 v1 - Create booking (expected: 201 Created)
+# @name createBookingV1
+POST {{baseUrl}}/api/v1/rooms/{{roomV1Id}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "elena",
+  "startUtc": "2030-03-01T09:00:00Z",
+  "endUtc": "2030-03-01T11:00:00Z",
+  "attendees": 3
+}
+
+###
+@bookingV1Id = {{createBookingV1.response.body.$.id}}
+
+### 3.4 v1 - Get booking (expected: 200 OK)
+GET {{baseUrl}}/api/v1/bookings/{{bookingV1Id}}
+
+### 3.5 v1 - Cancel booking (expected: 204 No Content)
+POST {{baseUrl}}/api/v1/bookings/{{bookingV1Id}}/cancel
+
+
+# ==============================================================================
+# SECTION 4: VERSION 2 ENDPOINTS (/api/v2/...)
+# Enhanced RESTful conventions, sub-resources, and HTTP verbs
+# ==============================================================================
+
+### 4.1 v2 - Create room (expected: 201 Created)
+# @name createRoomV2
+POST {{baseUrl}}/api/v2/rooms
+Content-Type: application/json
+
+{
+  "name": "Innovation Hub v2",
+  "capacity": 15
+}
+
+###
+@roomV2Id = {{createRoomV2.response.body.$.id}}
+
+### 4.2 v2 - Get room by ID (expected: 200 OK)
+GET {{baseUrl}}/api/v2/rooms/{{roomV2Id}}
+
+### 4.3 v2 - Create booking for room (capacity > 10, max 2 hours => 201 Created)
+# @name createBookingV2
+POST {{baseUrl}}/api/v2/rooms/{{roomV2Id}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "felix",
+  "startUtc": "2030-04-01T14:00:00Z",
+  "endUtc": "2030-04-01T16:00:00Z",
+  "attendees": 8
+}
+
+###
+@bookingV2Id = {{createBookingV2.response.body.$.id}}
+
+### 4.4 v2 - RESTful Sub-resource: List active bookings for room (expected: 200 with 1 booking)
+GET {{baseUrl}}/api/v2/rooms/{{roomV2Id}}/bookings
+
+### 4.5 v2 - Get booking by ID (expected: 200 OK)
+GET {{baseUrl}}/api/v2/bookings/{{bookingV2Id}}
+
+### 4.6 v2 - RESTful DELETE: Cancel booking using standard HTTP DELETE (expected: 204 No Content)
+DELETE {{baseUrl}}/api/v2/bookings/{{bookingV2Id}}
+
+### 4.7 v2 - Verify active bookings is now empty after cancellation (expected: 200 with empty array [])
+GET {{baseUrl}}/api/v2/rooms/{{roomV2Id}}/bookings
+
+### 4.8 v2 - RPC-style POST cancel is also supported for backward compatibility (expected: 409 already cancelled)
+POST {{baseUrl}}/api/v2/bookings/{{bookingV2Id}}/cancel
+
+
+# ==============================================================================
+# SECTION 5: NEW REQUIREMENTS (R9, R10, R11)
+# ==============================================================================
+
+### 5.1 Create rooms for R9 and R10 testing
+# @name roomSmall
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Small Lab (Capacity 8)",
+  "capacity": 8
+}
+
+###
+@smallRoomId = {{roomSmall.response.body.$.id}}
+
+### 5.2 Create large room for R10 testing (capacity > 10)
+# @name roomLarge
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Conference Hall (Capacity 20)",
+  "capacity": 20
+}
+
+###
+@largeRoomId = {{roomLarge.response.body.$.id}}
+
+### 5.3 R10: Capacity > 10 booked for > 2 hours (expected: 400 Bad Request)
+POST {{baseUrl}}/api/rooms/{{largeRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "tester1",
+  "startUtc": "2030-05-10T10:00:00Z",
+  "endUtc": "2030-05-10T12:01:00Z",
+  "attendees": 15
+}
+
+### 5.4 R10: Capacity > 10 booked for exactly 2 hours (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{largeRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "tester1",
+  "startUtc": "2030-05-10T10:00:00Z",
+  "endUtc": "2030-05-10T12:00:00Z",
+  "attendees": 15
+}
+
+### 5.5 R9: Participant Booking 1 on 2030-06-01 (expected: 201 Created)
+# @name r9Booking1
+POST {{baseUrl}}/api/rooms/{{smallRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "participantA",
+  "startUtc": "2030-06-01T08:00:00Z",
+  "endUtc": "2030-06-01T10:00:00Z",
+  "attendees": 4
+}
+
+###
+@r9Booking1Id = {{r9Booking1.response.body.$.id}}
+
+### 5.6 R9: Participant Booking 2 on same day in different room (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{largeRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "participantA",
+  "startUtc": "2030-06-01T11:00:00Z",
+  "endUtc": "2030-06-01T13:00:00Z",
+  "attendees": 12
+}
+
+### 5.7 R9: Participant Booking 3 on same day across all rooms (expected: 409 Conflict)
+POST {{baseUrl}}/api/rooms/{{smallRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "participantA",
+  "startUtc": "2030-06-01T14:00:00Z",
+  "endUtc": "2030-06-01T16:00:00Z",
+  "attendees": 4
+}
+
+### 5.8 R9: Participant Booking on a different day (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{smallRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "participantA",
+  "startUtc": "2030-06-02T08:00:00Z",
+  "endUtc": "2030-06-02T10:00:00Z",
+  "attendees": 4
+}
+
+### 5.9 R9: Cancel Booking 1 to free a daily slot (expected: 204 No Content)
+POST {{baseUrl}}/api/bookings/{{r9Booking1Id}}/cancel
+
+### 5.10 R9: Third booking now succeeds because cancelled bookings do not count (expected: 201 Created)
+POST {{baseUrl}}/api/rooms/{{smallRoomId}}/bookings
+Content-Type: application/json
+
+{
+  "bookedBy": "participantA",
+  "startUtc": "2030-06-01T14:00:00Z",
+  "endUtc": "2030-06-01T16:00:00Z",
+  "attendees": 4
+}
+
+### 5.11 R11: Cancel booking with < 60 minutes before start (expected: 409 Conflict)
+# Note: In real testing, use a booking starting in < 60 minutes from current UTC time.
+POST {{baseUrl}}/api/bookings/00000000-0000-0000-0000-000000000001/cancel
